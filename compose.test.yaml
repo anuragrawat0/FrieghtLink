@@ -1,0 +1,18 @@
+name: freightlink-test
+
+services:
+  db-test:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: freightlink_test
+      POSTGRES_USER: freightlink_test
+      POSTGRES_PASSWORD: ${TEST_POSTGRES_PASSWORD:?Set TEST_POSTGRES_PASSWORD in .env or your environment}
+    ports:
+      - "127.0.0.1:${TEST_POSTGRES_PORT:-55433}:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U freightlink_test -d freightlink_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 20

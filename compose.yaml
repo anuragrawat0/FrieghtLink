@@ -1,0 +1,66 @@
+name: freightlink
+
+services:
+  db:
+    image: postgres:17-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-freightlink}
+      POSTGRES_USER: ${POSTGRES_USER:-freightlink}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-freightlink_dev}
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U \"$$POSTGRES_USER\" -d \"$$POSTGRES_DB\""]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build:
+      context: .
+      target: api
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 3001
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-freightlink}:${POSTGRES_PASSWORD:-freightlink_dev}@db:5432/${POSTGRES_DB:-freightlink}?schema=public"
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env or your environment}
+      UPLOAD_DIR: /app/uploads
+      STRIPE_SECRET_KEY: ${STRIPE_SECRET_KEY:-}
+      STRIPE_WEBHOOK_SECRET: ${STRIPE_WEBHOOK_SECRET:-}
+    ports:
+      - "127.0.0.1:${API_PORT:-3001}:3001"
+    volumes:
+      - uploads_data:/app/uploads
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3001/api/v1/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: .
+      target: web
+      args:
+        NEXT_PUBLIC_API_ORIGIN: ${NEXT_PUBLIC_API_ORIGIN:-http://localhost:3001}
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:${WEB_PORT:-3000}:3000"
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  postgres_data:
+  uploads_data:

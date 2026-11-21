@@ -1,0 +1,14 @@
+node_modules/
+.npm-cache/
+.env
+.env.*
+!.env.example
+apps/api/dist/
+apps/api/src/generated/
+apps/api/uploads/
+apps/web/.next/
+apps/web/next-env.d.ts
+*.tsbuildinfo
+/uploads/
+docs/
+AGENTS.md

@@ -1,0 +1,302 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  SHIPPER
+  CARRIER
+  ADMIN
+}
+
+enum VerificationStatus {
+  DRAFT
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum SafetyRating {
+  SATISFACTORY
+  CONDITIONAL
+  UNSATISFACTORY
+  NOT_RATED
+}
+
+enum LoadStatus {
+  DRAFT
+  OPEN
+  ASSIGNED
+  COMPLETED
+  CANCELLED
+}
+
+enum BidStatus {
+  ACTIVE
+  ACCEPTED
+  CLOSED
+}
+
+enum ShipmentStatus {
+  ASSIGNED
+  IN_TRANSIT
+  DELIVERED
+}
+
+enum CheckpointKind {
+  ASSIGNED
+  PICKUP_ARRIVAL
+  PICKED_UP
+  GPS
+  DELIVERY_ARRIVAL
+  DELIVERED
+}
+
+enum StopType {
+  PICKUP
+  DELIVERY
+}
+
+enum InvoiceStatus {
+  ISSUED
+  PAID
+}
+
+enum PaymentStatus {
+  PENDING
+  SUCCEEDED
+  FAILED
+}
+
+model User {
+  id           String   @id @default(uuid()) @db.Uuid
+  email        String   @unique @db.VarChar(254)
+  displayName  String   @db.VarChar(100)
+  passwordHash String
+  role         Role
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  carrierProfile   CarrierProfile?      @relation("CarrierAccount")
+  reviewedCarriers CarrierProfile[]     @relation("CarrierReviewer")
+  loads            Load[]
+  offers           BidOffer[]
+  checkpoints      TrackingCheckpoint[]
+}
+
+model CarrierProfile {
+  id                      String             @id @default(uuid()) @db.Uuid
+  userId                  String             @unique @db.Uuid
+  motorCarrierLicense     String?            @unique @db.VarChar(40)
+  safetyRating            SafetyRating?
+  verificationStatus      VerificationStatus @default(DRAFT)
+  verificationRevision    Int                @default(0)
+  verificationSubmittedAt DateTime?         @db.Timestamptz(3)
+  reviewedByUserId        String?           @db.Uuid
+  reviewedAt              DateTime?         @db.Timestamptz(3)
+  reviewNote              String?           @db.VarChar(500)
+
+  user        User             @relation("CarrierAccount", fields: [userId], references: [id], onDelete: Restrict)
+  reviewedBy  User?            @relation("CarrierReviewer", fields: [reviewedByUserId], references: [id], onDelete: Restrict)
+  insurance   CarrierDocument?
+  bids        Bid[]
+  shipments   Shipment[]
+
+  @@index([verificationStatus, verificationSubmittedAt])
+}
+
+model CarrierDocument {
+  id               String   @id @default(uuid()) @db.Uuid
+  carrierProfileId String   @unique @db.Uuid
+  storageKey       String   @unique
+  mimeType         String   @db.VarChar(50)
+  sizeBytes        Int
+  uploadedAt       DateTime @default(now()) @db.Timestamptz(3)
+
+  carrierProfile CarrierProfile @relation(fields: [carrierProfileId], references: [id], onDelete: Restrict)
+}
+
+model Load {
+  id               String     @id @default(uuid()) @db.Uuid
+  shipperId        String     @db.Uuid
+  status           LoadStatus @default(DRAFT)
+  description      String     @db.VarChar(1000)
+  pickupCity       String     @db.VarChar(100)
+  pickupRegion     String     @db.Char(2)
+  pickupLat        Float      @db.DoublePrecision
+  pickupLng        Float      @db.DoublePrecision
+  deliveryCity     String     @db.VarChar(100)
+  deliveryRegion   String     @db.Char(2)
+  deliveryLat      Float      @db.DoublePrecision
+  deliveryLng      Float      @db.DoublePrecision
+  pickupReadyAt    DateTime   @db.Timestamptz(3)
+  deliveryBy       DateTime   @db.Timestamptz(3)
+  isSample         Boolean    @default(false)
+  createdAt        DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime   @updatedAt @db.Timestamptz(3)
+
+  shipper  User      @relation(fields: [shipperId], references: [id], onDelete: Restrict)
+  bids     Bid[]
+  shipment Shipment?
+
+  @@index([status, createdAt, id])
+  @@index([shipperId, createdAt, id])
+}
+
+model Bid {
+  id               String    @id @default(uuid()) @db.Uuid
+  loadId           String    @db.Uuid
+  carrierProfileId String    @db.Uuid
+  status           BidStatus @default(ACTIVE)
+  currentRevision  Int       @default(1)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  load           Load           @relation(fields: [loadId], references: [id], onDelete: Restrict)
+  carrierProfile CarrierProfile @relation(fields: [carrierProfileId], references: [id], onDelete: Restrict)
+  offers         BidOffer[]
+  shipment       Shipment?
+
+  @@unique([loadId, carrierProfileId])
+  @@index([loadId, status])
+  @@index([carrierProfileId, createdAt, id])
+}
+
+model BidOffer {
+  bidId          String   @db.Uuid
+  revision       Int
+  authorUserId   String   @db.Uuid
+  amountCents    Int
+  createdAt      DateTime @default(now()) @db.Timestamptz(3)
+
+  bid    Bid  @relation(fields: [bidId], references: [id], onDelete: Restrict)
+  author User @relation(fields: [authorUserId], references: [id], onDelete: Restrict)
+
+  @@id([bidId, revision])
+}
+
+model Shipment {
+  id                 String         @id @default(uuid()) @db.Uuid
+  loadId             String         @unique @db.Uuid
+  acceptedBidId      String         @unique @db.Uuid
+  acceptedRevision   Int
+  carrierProfileId   String         @db.Uuid
+  acceptedRateCents  Int
+  status             ShipmentStatus @default(ASSIGNED)
+  assignedAt         DateTime       @default(now()) @db.Timestamptz(3)
+  pickedUpAt         DateTime?      @db.Timestamptz(3)
+  deliveryArrivedAt  DateTime?      @db.Timestamptz(3)
+  deliveredAt        DateTime?      @db.Timestamptz(3)
+  currentEtaAt       DateTime?      @db.Timestamptz(3)
+
+  load           Load                 @relation(fields: [loadId], references: [id], onDelete: Restrict)
+  acceptedBid    Bid                  @relation(fields: [acceptedBidId], references: [id], onDelete: Restrict)
+  carrierProfile CarrierProfile       @relation(fields: [carrierProfileId], references: [id], onDelete: Restrict)
+  checkpoints    TrackingCheckpoint[]
+  proofOfDelivery ProofOfDelivery?
+  invoice        Invoice?
+
+  @@index([carrierProfileId, assignedAt, id])
+  @@index([status, deliveredAt])
+  @@index([assignedAt, id])
+}
+
+model TrackingCheckpoint {
+  id             String         @id @default(uuid()) @db.Uuid
+  shipmentId     String         @db.Uuid
+  sequence       Int
+  kind           CheckpointKind
+  actorUserId    String?        @db.Uuid
+  clientEventId  String?        @db.Uuid
+  occurredAt     DateTime       @db.Timestamptz(3)
+  recordedAt     DateTime       @default(now()) @db.Timestamptz(3)
+  latitude       Float?         @db.DoublePrecision
+  longitude      Float?         @db.DoublePrecision
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  actor    User?    @relation(fields: [actorUserId], references: [id], onDelete: Restrict)
+
+  @@unique([shipmentId, sequence])
+  @@unique([shipmentId, clientEventId])
+}
+
+model ProofOfDelivery {
+  id           String   @id @default(uuid()) @db.Uuid
+  shipmentId   String   @unique @db.Uuid
+  storageKey   String   @unique
+  mimeType     String   @db.VarChar(50)
+  sizeBytes    Int
+  sha256       String   @db.Char(64)
+  uploadedAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  shipment Shipment @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+}
+
+model Invoice {
+  id             String        @id @default(uuid()) @db.Uuid
+  shipmentId     String        @unique @db.Uuid
+  status         InvoiceStatus @default(ISSUED)
+  currency       String        @default("USD") @db.Char(3)
+  linehaulCents   Int
+  detentionCents  Int
+  totalCents      Int
+  issuedAt        DateTime      @default(now()) @db.Timestamptz(3)
+  paidAt          DateTime?     @db.Timestamptz(3)
+
+  shipment  Shipment               @relation(fields: [shipmentId], references: [id], onDelete: Restrict)
+  detention DetentionCharge[]
+  payments  Payment[]
+  payout    CarrierPayoutStatement?
+
+  @@index([issuedAt, id])
+}
+
+model DetentionCharge {
+  invoiceId        String   @db.Uuid
+  stop             StopType
+  arrivedAt        DateTime @db.Timestamptz(3)
+  departedAt       DateTime @db.Timestamptz(3)
+  freeMinutes      Int
+  hourlyRateCents  Int
+  billableSeconds  Int
+  amountCents      Int
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+
+  @@id([invoiceId, stop])
+}
+
+model Payment {
+  id                      String        @id @default(uuid()) @db.Uuid
+  invoiceId               String        @db.Uuid
+  status                  PaymentStatus @default(PENDING)
+  amountCents             Int
+  currency                String        @default("USD") @db.Char(3)
+  createdAt               DateTime      @default(now()) @db.Timestamptz(3)
+  checkoutExpiresAt       DateTime      @db.Timestamptz(3)
+  stripeCheckoutSessionId String?       @unique
+  stripePaymentIntentId   String?       @unique
+  resolvedAt              DateTime?     @db.Timestamptz(3)
+
+  invoice Invoice                 @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  payout  CarrierPayoutStatement?
+
+  @@index([invoiceId, createdAt, id])
+}
+
+model CarrierPayoutStatement {
+  id          String   @id @default(uuid()) @db.Uuid
+  invoiceId   String   @unique @db.Uuid
+  paymentId   String   @unique @db.Uuid
+  currency    String   @default("USD") @db.Char(3)
+  amountCents Int
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+
+  invoice Invoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  payment Payment @relation(fields: [paymentId], references: [id], onDelete: Restrict)
+
+  @@index([createdAt, id])
+}
