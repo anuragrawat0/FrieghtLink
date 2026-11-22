@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { apiFetch, ApiError } from "../../lib/api";
+import { useEffect, useState, type ReactNode } from "react";
+import { ApiError } from "../../lib/api";
 import { getAccessToken } from "../../lib/session";
 import { connectSocket } from "../../lib/socket";
-import { endSession, isAbortError, rolePages, type Role, type User } from "./session";
+import { useRequestScope } from "../../lib/use-request-scope";
+import { endSession, rolePages, type Role, type User } from "./session";
 
-export function RoleHome({ role }: { role: Role }) {
+export function RoleHome({ role, children }: { role: Role; children?: ReactNode }) {
   const router = useRouter();
   const [user, setUser] = useState<User>();
   const [error, setError] = useState("");
+  const { json, cancel } = useRequestScope();
 
   useEffect(() => {
     const token = getAccessToken();
@@ -19,57 +21,57 @@ export function RoleHome({ role }: { role: Role }) {
       router.replace("/login");
       return;
     }
-    const controller = new AbortController();
-    const { signal } = controller;
     let socket: ReturnType<typeof connectSocket> | undefined;
 
     function onDisconnect(reason: string) {
-      if (reason === "io server disconnect") void loadSession();
+      if (reason === "io server disconnect") refreshSession();
     }
 
     function onConnectError(failure: Error & { data?: { code?: string } }) {
-      if (failure.data?.code === "UNAUTHENTICATED") void loadSession();
+      if (failure.data?.code === "UNAUTHENTICATED") refreshSession();
     }
 
-    async function loadSession() {
-      if (signal.aborted || getAccessToken() !== token) return;
-      try {
-        const { data } = await apiFetch<User>("/users/me", { signal });
-        if (signal.aborted || getAccessToken() !== token) return;
-        if (data.role !== role) {
-          router.replace(rolePages[data.role].path);
-          return;
-        }
-        setError("");
-        setUser(data);
-        if (!socket) {
-          socket = connectSocket();
-          socket.on("connect", loadSession);
-          socket.on("connect_error", onConnectError);
-          socket.on("disconnect", onDisconnect);
-        }
-      } catch (failure) {
-        if (signal.aborted || isAbortError(failure) || getAccessToken() !== token) return;
-        if (failure instanceof ApiError && failure.status === 401) {
-          setUser(undefined);
-          endSession();
-          router.replace("/login");
-          return;
-        }
-        setError("Your session could not be checked. Reload the page to try again.");
-      }
+    function refreshSession() {
+      if (getAccessToken() !== token) return;
+      json<User>("/users/me", {
+        onSuccess: ({ data }) => {
+          if (getAccessToken() !== token) return;
+          if (data.role !== role) {
+            router.replace(rolePages[data.role].path);
+            return;
+          }
+          setError("");
+          setUser(data);
+          if (!socket) {
+            socket = connectSocket();
+            socket.on("connect", refreshSession);
+            socket.on("connect_error", onConnectError);
+            socket.on("disconnect", onDisconnect);
+          }
+        },
+        onError: (failure) => {
+          if (getAccessToken() !== token) return;
+          if (failure instanceof ApiError && failure.status === 401) {
+            setUser(undefined);
+            endSession();
+            router.replace("/login");
+            return;
+          }
+          setError("Your session could not be checked. Reload the page to try again.");
+        },
+      });
     }
 
-    void loadSession();
-    window.addEventListener("focus", loadSession);
+    refreshSession();
+    window.addEventListener("focus", refreshSession);
     return () => {
-      window.removeEventListener("focus", loadSession);
-      socket?.off("connect", loadSession);
+      window.removeEventListener("focus", refreshSession);
+      socket?.off("connect", refreshSession);
       socket?.off("connect_error", onConnectError);
       socket?.off("disconnect", onDisconnect);
-      controller.abort();
+      cancel();
     };
-  }, [role, router]);
+  }, [role, router, json, cancel]);
 
   if (!user && !error) {
     return <main><p role="status">Checking your session…</p></main>;
@@ -77,9 +79,12 @@ export function RoleHome({ role }: { role: Role }) {
 
   return (
     <main>
-      <h1>{rolePages[role].title}</h1>
-      {error ? <p role="alert">{error}</p> : user && <p>Signed in as {user.displayName}.</p>}
-      <Link href="/logout">Sign out</Link>
+      <header>
+        <nav aria-label="Account"><Link href={rolePages[role].path}>{rolePages[role].title} home</Link>{" · "}<Link href="/logout">Sign out</Link></nav>
+        {user && <p>Signed in as {user.displayName}.</p>}
+      </header>
+      {error && <p role="alert">{error}</p>}
+      {user?.role === role && children}
     </main>
   );
 }

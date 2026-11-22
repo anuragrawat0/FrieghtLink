@@ -3,19 +3,21 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent } from "react";
-import { apiFetch, ApiError } from "../../lib/api";
+import { ApiError } from "../../lib/api";
 import { setAccessToken } from "../../lib/session";
 import { disconnectSocket } from "../../lib/socket";
-import { isAbortError, rolePages, type Auth } from "./session";
+import { useRequestScope } from "../../lib/use-request-scope";
+import { rolePages, type Auth } from "./session";
 
 export function AuthPage({ mode }: { mode: "register" | "login" }) {
   const router = useRouter();
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const { json } = useRequestScope();
   const register = mode === "register";
   const title = register ? "Create an account" : "Sign in";
 
-  async function submit(event: FormEvent<HTMLFormElement>) {
+  function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending) return;
     const fields = new FormData(event.currentTarget);
@@ -26,16 +28,16 @@ export function AuthPage({ mode }: { mode: "register" | "login" }) {
       ? { ...credentials, displayName: fields.get("displayName"), role: fields.get("role") }
       : credentials;
 
-    try {
-      const { data } = await apiFetch<Auth>(`/auth/${mode}`, { method: "POST", body: JSON.stringify(body) });
-      disconnectSocket();
-      setAccessToken(data.accessToken);
-      router.replace(rolePages[data.user.role].path);
-    } catch (failure) {
-      setPending(false);
-      if (isAbortError(failure)) return;
-      setError(failure instanceof ApiError ? failure.message : "FreightLink could not be reached. Try again.");
-    }
+    json<Auth>(`/auth/${mode}`, {
+      init: { method: "POST", body: JSON.stringify(body) },
+      onSuccess: ({ data }) => {
+        disconnectSocket();
+        setAccessToken(data.accessToken);
+        router.replace(rolePages[data.user.role].path);
+      },
+      onError: (failure) => setError(failure instanceof ApiError ? failure.message : "FreightLink could not be reached. Try again."),
+      onSettled: () => setPending(false),
+    });
   }
 
   return (

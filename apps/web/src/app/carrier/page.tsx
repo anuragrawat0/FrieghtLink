@@ -1,5 +1,5 @@
-import { RoleHome } from "../../features/auth/RoleHome";
+import { CarrierProfilePage } from "../../features/carriers/CarrierProfilePage";
 
 export default function Carrier() {
-  return <RoleHome role="CARRIER" />;
+  return <CarrierProfilePage />;
 }

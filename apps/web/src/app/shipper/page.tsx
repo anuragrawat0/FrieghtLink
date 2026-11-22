@@ -1,5 +1,5 @@
-import { RoleHome } from "../../features/auth/RoleHome";
+import Link from "next/link";
 
 export default function Shipper() {
-  return <RoleHome role="SHIPPER" />;
+  return <><h1>Shipper</h1><Link href="/shipper/loads">Your loads</Link></>;
 }
