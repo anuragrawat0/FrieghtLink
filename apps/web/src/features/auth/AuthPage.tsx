@@ -6,7 +6,7 @@ import { useState, type FormEvent } from "react";
 import { apiFetch, ApiError } from "../../lib/api";
 import { setAccessToken } from "../../lib/session";
 import { disconnectSocket } from "../../lib/socket";
-import { rolePages, type Auth } from "./session";
+import { isAbortError, rolePages, type Auth } from "./session";
 
 export function AuthPage({ mode }: { mode: "register" | "login" }) {
   const router = useRouter();
@@ -32,8 +32,9 @@ export function AuthPage({ mode }: { mode: "register" | "login" }) {
       setAccessToken(data.accessToken);
       router.replace(rolePages[data.user.role].path);
     } catch (failure) {
-      setError(failure instanceof ApiError ? failure.message : "FreightLink could not be reached. Try again.");
       setPending(false);
+      if (isAbortError(failure)) return;
+      setError(failure instanceof ApiError ? failure.message : "FreightLink could not be reached. Try again.");
     }
   }
 

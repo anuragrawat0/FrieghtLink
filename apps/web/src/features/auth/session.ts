@@ -11,6 +11,10 @@ export type Role = keyof typeof rolePages;
 export type User = { id: string; email: string; displayName: string; role: Role; createdAt: string };
 export type Auth = { user: User; accessToken: string };
 
+export function isAbortError(error: unknown) {
+  return typeof error === "object" && error !== null && "name" in error && error.name === "AbortError";
+}
+
 export function endSession() {
   setAccessToken(null);
   disconnectSocket();
