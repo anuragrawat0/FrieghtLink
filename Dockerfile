@@ -16,7 +16,7 @@ RUN chown node:node apps/api && install -d -o node -g node /app/uploads
 USER node
 RUN npm run build --workspace @freightlink/api
 EXPOSE 3001
-CMD ["sh", "-c", "npm run db:deploy && exec node apps/api/dist/index.js"]
+CMD ["sh", "-c", "npm run --silent db:prepare --workspace @freightlink/api && exec node apps/api/dist/index.js"]
 
 FROM dependencies AS web
 ARG NEXT_PUBLIC_API_ORIGIN=http://localhost:3001

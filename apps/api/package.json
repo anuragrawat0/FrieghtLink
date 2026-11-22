@@ -3,14 +3,15 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "prisma generate && tsx watch src/index.ts",
+    "dev": "prisma generate && npm run --silent db:prepare && tsx watch src/index.ts",
     "build": "prisma generate && tsc -p tsconfig.json",
-    "start": "node dist/index.js",
+    "start": "npm run --silent db:prepare && node dist/index.js",
     "typecheck": "prisma generate && tsc --noEmit -p tsconfig.json",
     "test": "prisma generate && vitest run --project unit",
     "test:db": "prisma generate && vitest run --project database",
     "db:validate": "prisma validate",
-    "db:deploy": "prisma migrate deploy"
+    "db:deploy": "prisma migrate deploy",
+    "db:prepare": "npm run --silent db:deploy && node --import tsx prisma/seed.ts"
   },
   "dependencies": {
     "@fastify/cors": "^11.2.0",
