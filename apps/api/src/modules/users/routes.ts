@@ -5,7 +5,7 @@ import { toUserDto } from "./service.js";
 
 export const usersRoutes: FastifyPluginAsync = async (app) => {
   app.get("/users/me", {
-    preHandler: app.authenticate,
+    onRequest: app.authenticate,
     schema: {
       querystring: { type: "object", additionalProperties: false, properties: {} },
       response: {

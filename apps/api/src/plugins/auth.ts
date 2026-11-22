@@ -1,4 +1,4 @@
-import type { preHandlerAsyncHookHandler } from "fastify";
+import type { onRequestAsyncHookHandler, preHandlerAsyncHookHandler } from "fastify";
 import fp from "fastify-plugin";
 import { jwtVerify, SignJWT } from "jose";
 import type { Prisma, Role } from "../generated/prisma/client.js";
@@ -23,7 +23,7 @@ interface AuthService {
 declare module "fastify" {
   interface FastifyInstance {
     auth: AuthService;
-    authenticate: preHandlerAsyncHookHandler;
+    authenticate: onRequestAsyncHookHandler;
     authorize: (firstRole: Role, ...otherRoles: Role[]) => preHandlerAsyncHookHandler;
   }
 
