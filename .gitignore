@@ -11,4 +11,5 @@ apps/web/next-env.d.ts
 *.tsbuildinfo
 /uploads/
 docs/
+AGENTS.md*.diff
 AGENTS.md
