@@ -7,6 +7,7 @@ import { buffer } from "node:stream/consumers";
 import Fastify from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Prisma, type PrismaClient } from "../../src/generated/prisma/client.js";
+import { errorContext } from "../../src/shared/errors.js";
 import { addCents, calculateDetentionCharge, compareCents, isAmountCents, roundUpCents } from "../../src/shared/money.js";
 import { captureRawBody } from "../../src/shared/raw-body.js";
 import { withSerializableTransaction } from "../../src/shared/transactions.js";
@@ -66,6 +67,34 @@ describe("Serializable retries", () => {
     transaction.mockReset().mockRejectedValue(unrelated);
     await expect(withSerializableTransaction(prisma, async () => null)).rejects.toBe(unrelated);
     expect(transaction).toHaveBeenCalledOnce();
+  });
+
+  it.each([
+    Object.assign(new Error(), { code: "40001" }),
+    new Error("Wrapped deadlock", { cause: { sqlState: "40P01" } }),
+    new Prisma.PrismaClientKnownRequestError("Raw query failed", { code: "P2010", clientVersion: "7", meta: { code: "55P03" } }),
+    new Error("Adapter conflict", { cause: { kind: "TransactionWriteConflict" } }),
+  ])("retries a conflict beyond the P2034 shape (%#)", async (error) => {
+    const transaction = vi.fn().mockRejectedValueOnce(error).mockResolvedValueOnce("committed");
+    const prisma = { $transaction: transaction } as unknown as PrismaClient;
+    await expect(withSerializableTransaction(prisma, async () => null)).resolves.toBe("committed");
+    expect(transaction).toHaveBeenCalledTimes(2);
+  });
+});
+
+it("logs Prisma and adapter conflict metadata without raw error messages or query details", () => {
+  const adapter = new Error("Private database message", { cause: {
+    kind: "postgres", code: "55P03", originalCode: "55P03", detail: "Private database detail",
+  } });
+  adapter.name = "DriverAdapterError";
+  const error = new Prisma.PrismaClientKnownRequestError("Private query message", {
+    code: "P2010", clientVersion: "7", meta: { modelName: "CarrierProfile", driverAdapterError: adapter, query: "Private query" },
+  });
+  expect(JSON.parse(JSON.stringify(errorContext(error)))).toEqual({
+    name: "PrismaClientKnownRequestError", code: "P2010",
+    meta: { modelName: "CarrierProfile", driverAdapterError: { name: "DriverAdapterError", cause: {
+      kind: "postgres", code: "55P03", originalCode: "55P03",
+    } } },
   });
 });
 

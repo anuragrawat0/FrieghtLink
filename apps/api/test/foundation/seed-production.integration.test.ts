@@ -6,6 +6,7 @@ import { readConfig } from "../../src/config.js";
 import { requireTestDatabaseUrl } from "../setup/database.js";
 
 const prefix = `seed-production-${randomUUID()}-`;
+const password = "production seed password 123";
 let app: ReturnType<typeof buildApp>;
 
 beforeAll(async () => {
@@ -25,21 +26,35 @@ afterAll(async () => {
   }
 });
 
-it("skips the demo admin seed when NODE_ENV is production", async () => {
-  const email = `${prefix}admin@example.test`;
-  const result = spawnSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
+function runSeed(email: string, password: string) {
+  return spawnSync(process.execPath, ["--import", "tsx", "prisma/seed.ts"], {
     cwd: process.cwd(),
     env: {
       ...process.env,
       NODE_ENV: "production",
       DATABASE_URL: requireTestDatabaseUrl(),
       DEMO_ADMIN_EMAIL: email,
-      DEMO_ADMIN_PASSWORD: "production seed password 123",
+      DEMO_ADMIN_PASSWORD: password,
     },
     encoding: "utf8",
   });
+}
 
+it.each(["email", "password"])("quietly skips the production seed when the demo admin %s is empty", async (empty) => {
+  const email = `${prefix}empty-${empty}@example.test`;
+  const result = runSeed(empty === "email" ? "" : email, empty === "password" ? "" : password);
   expect(result.status, result.stderr).toBe(0);
-  expect(result.stderr).toContain("Skipping the demo admin seed in production.");
-  expect(await app.prisma.user.count({ where: { email } })).toBe(0);
+  expect(result.stdout).toBe("");
+  expect(result.stderr).toBe("");
+  expect(await app.prisma.user.count({ where: { email: { in: [email, ""] } } })).toBe(0);
+});
+
+it("seeds a configured admin in production who can log in", async () => {
+  const email = `${prefix}admin@example.test`;
+  const result = runSeed(email, password);
+  expect(result.status, result.stderr).toBe(0);
+
+  const response = await app.inject({ method: "POST", url: "/api/v1/auth/login", payload: { email, password } });
+  expect(response.statusCode).toBe(200);
+  expect(response.json().data.user).toMatchObject({ email, role: "ADMIN" });
 });

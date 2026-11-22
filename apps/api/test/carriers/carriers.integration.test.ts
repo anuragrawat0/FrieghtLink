@@ -134,3 +134,24 @@ it("validates onboarding, protects downloads and runs revisioned decisions with 
   ]));
   emit.mockRestore();
 });
+
+it("keeps concurrent writes to one carrier profile within the API conflict contract", async () => {
+  const { headers, profileId } = await account("CARRIER", "concurrent-writes");
+  const patch = (payload: object) => app.inject({ method: "PATCH", url: me, headers, payload });
+  expect((await patch({ motorCarrierLicense: randomUUID(), safetyRating: "SATISFACTORY" })).statusCode).toBe(200);
+  expect((await upload(headers)).statusCode).toBe(200);
+
+  const responses = await Promise.all([
+    ...Array.from({ length: 4 }, (_, index) => upload(headers, `${pdf}\nrevision ${index}`)),
+    patch({ safetyRating: "CONDITIONAL" }),
+    patch({ safetyRating: "NOT_RATED" }),
+    app.inject({ method: "POST", url: `${me}/verification`, headers }),
+  ]);
+  for (const response of responses) {
+    expect([200, 409, 503], response.body).toContain(response.statusCode);
+    if (response.statusCode === 409) expect(response.json().error.code).toBe("PROFILE_LOCKED");
+    if (response.statusCode === 503) expect(response.json().error.code).toBe("CONCURRENT_UPDATE");
+  }
+  expect(responses.some(({ statusCode }) => statusCode === 200)).toBe(true);
+  expect(await app.prisma.carrierDocument.count({ where: { carrierProfileId: profileId } })).toBe(1);
+});

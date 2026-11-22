@@ -6,10 +6,6 @@ import { errorContext } from "../src/shared/errors.js";
 
 async function main() {
   loadLocalEnv();
-  if (process.env.NODE_ENV === "production") {
-    console.warn("Skipping the demo admin seed in production.");
-    return;
-  }
   if (!process.env.DEMO_ADMIN_EMAIL?.trim() || !process.env.DEMO_ADMIN_PASSWORD) return;
 
   const databaseUrl = process.env.DATABASE_URL;
