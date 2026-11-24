@@ -167,7 +167,8 @@ export function LoadDetailPage({ role, id }: { role: LoadRole; id: string }) {
         <dt>Delivery</dt><dd>{load.deliveryCity}, {load.deliveryRegion} ({load.deliveryLat}, {load.deliveryLng})</dd>
         <dt>Deliver by</dt><dd>{new Date(load.deliveryBy).toLocaleString()}</dd>
       </dl>
-      {load.status === "ASSIGNED" && <AssignmentSummary key={`assignment-${load.id}`} loadId={load.id} role={role} />}
+      {(load.status === "ASSIGNED" || load.status === "COMPLETED") &&
+        <AssignmentSummary key={`assignment-${load.id}`} loadId={load.id} role={role} />}
       {role === "shipper" && <>
         {load.status === "DRAFT" && <>
           <LoadForm key={load.updatedAt} load={load} busy={busy} onSave={(input) => update(`/loads/${id}`, { method: "PATCH", body: JSON.stringify(input) })} />

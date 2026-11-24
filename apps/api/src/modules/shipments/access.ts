@@ -1,4 +1,4 @@
-import type { Prisma, PrismaClient } from "../../generated/prisma/client.js";
+import type { Prisma } from "../../generated/prisma/client.js";
 import type { AuthenticatedUser } from "../../plugins/auth.js";
 
 export function shipmentReadScope(user: AuthenticatedUser): Prisma.ShipmentWhereInput {
@@ -7,7 +7,7 @@ export function shipmentReadScope(user: AuthenticatedUser): Prisma.ShipmentWhere
   return {};
 }
 
-export async function canReadShipment(prisma: PrismaClient, user: AuthenticatedUser, shipmentId: string): Promise<boolean> {
+export async function canReadShipment(prisma: Prisma.TransactionClient, user: AuthenticatedUser, shipmentId: string): Promise<boolean> {
   const shipment = await prisma.shipment.findFirst({
     where: { id: shipmentId, ...shipmentReadScope(user) }, select: { id: true },
   });

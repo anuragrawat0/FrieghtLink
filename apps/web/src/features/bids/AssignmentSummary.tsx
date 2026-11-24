@@ -1,12 +1,13 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { useRequestScope } from "../../lib/use-request-scope";
 import { formatRate, type Bid, type BidRole } from "./types";
 import { useBidUpdates } from "./use-bid-updates";
 
-type Shipment = { id: string; loadId: string; acceptedBidId: string; acceptedRateCents: number };
+type Shipment = { id: string; acceptedRateCents: number };
 type Assignment = { carrier: string; shipment: Shipment };
 
 export function AssignmentSummary({ loadId, role }: { loadId: string; role: BidRole }) {
@@ -20,14 +21,9 @@ export function AssignmentSummary({ loadId, role }: { loadId: string; role: BidR
       const { data: [bid] } = await apiFetch<Bid[]>(`${bidPath}status=ACCEPTED&limit=1`, { signal });
       if (!bid) return null;
 
-      // The shipment list is scoped to the signed-in user and paginated.
-      const limit = 100;
-      for (let offset = 0; ; offset += limit) {
-        const { data, meta } = await apiFetch<Shipment[]>(`/shipments?limit=${limit}&offset=${offset}`, { signal });
-        const shipment = data.find((row) => row.loadId === loadId && row.acceptedBidId === bid.id);
-        if (shipment) return { carrier: bid.carrierDisplayName, shipment };
-        if (!meta?.hasMore) throw new Error("The shipment for this assignment could not be found.");
-      }
+      const { data: [shipment] } = await apiFetch<Shipment[]>(`/shipments?loadId=${loadId}&limit=1`, { signal });
+      if (!shipment) throw new Error("The shipment for this assignment could not be found.");
+      return { carrier: bid.carrierDisplayName, shipment };
     }, {
       onSuccess: (data) => { setAssignment(data); setError(""); },
       onError: (error) => setError(error instanceof Error ? error.message : "Could not load the assignment."),
@@ -45,5 +41,7 @@ export function AssignmentSummary({ loadId, role }: { loadId: string; role: BidR
       <dt>Accepted rate</dt><dd>{formatRate(assignment.shipment.acceptedRateCents)}</dd>
       <dt>Shipment ID</dt><dd>{assignment.shipment.id}</dd>
     </dl>
+    <Link href={`/${role}/shipments/${assignment.shipment.id}`}>View shipment</Link>{" · "}
+    <Link href={`/${role}/shipments`}>My shipments</Link>
   </section>;
 }

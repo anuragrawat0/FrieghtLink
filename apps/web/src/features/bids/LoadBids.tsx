@@ -25,6 +25,7 @@ function OfferForm({ busy, onOffer, label }: { busy: boolean; onOffer: (amountCe
 export function LoadBids({ load, role, onChange }: { load: Load; role: BidRole; onChange: () => void }) {
   const [rows, setRows] = useState<Bid[]>();
   const [myBid, setMyBid] = useState<BidDetail | null>(null);
+  const [agreedBids, setAgreedBids] = useState<string[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [readError, setReadError] = useState("");
@@ -38,16 +39,25 @@ export function LoadBids({ load, role, onChange }: { load: Load; role: BidRole; 
     run(async (signal) => {
       if (role === "shipper") {
         const { data, meta } = await apiFetch<Bid[]>(`/loads/${id}/bids?limit=${pageSize}&offset=${offset}`, { signal });
-        return { data, hasMore: meta?.hasMore ?? false, detail: null };
+        const details = await Promise.all(data
+          .filter((bid) => bid.status === "ACTIVE" && bid.currentRevision >= 3 && bid.currentOffer.authorRole === "CARRIER")
+          .map(async (bid) => (await apiFetch<BidDetail>(`/bids/${bid.id}`, { signal })).data));
+        const agreed = details.filter((bid) => {
+          const previous = bid.offers.at(-2);
+          return bid.currentOffer.authorRole === "CARRIER" && previous?.authorRole === "SHIPPER"
+            && previous.amountCents === bid.currentOffer.amountCents;
+        }).map((bid) => bid.id + "/" + bid.currentRevision);
+        return { data, hasMore: meta?.hasMore ?? false, detail: null, agreed };
       }
       const { data } = await apiFetch<Bid[]>(`/bids?loadId=${id}&limit=1`, { signal });
       const detail = data[0] ? (await apiFetch<BidDetail>(`/bids/${data[0].id}`, { signal })).data : null;
-      return { data, hasMore: false, detail };
+      return { data, hasMore: false, detail, agreed: [] };
     }, {
-      onSuccess: ({ data, hasMore, detail }) => {
+      onSuccess: ({ data, hasMore, detail, agreed }) => {
         setRows(data);
         setHasMore(hasMore);
         setMyBid(detail);
+        setAgreedBids(agreed);
         setReadError("");
       },
       onError: (error) => setReadError(error instanceof Error ? error.message : "Could not load bids."),
@@ -94,7 +104,7 @@ export function LoadBids({ load, role, onChange }: { load: Load; role: BidRole; 
             <OfferForm busy={busy} label="Send counter-offer" onOffer={(amount) => counter(bid, amount)} />
             <button type="button" disabled={busy} onClick={() => submit(`/bids/${bid.id}/accept`, {
               expectedRevision: bid.currentRevision,
-            })}>Accept bid</button>
+            })}>{agreedBids.includes(bid.id + "/" + bid.currentRevision) ? <strong>Carrier agreed — Accept</strong> : "Accept bid"}</button>
           </div>}
       </li>)}</ul> : <p>No bids on this page.</p>}
       {offset > 0 && <button onClick={() => goTo(offset - pageSize)}>Previous bids</button>}{" "}
@@ -107,7 +117,13 @@ export function LoadBids({ load, role, onChange }: { load: Load; role: BidRole; 
         {offer.authorRole === "CARRIER" ? "You" : "Shipper"} offered {formatRate(offer.amountCents)}
       </li>)}</ol>
       {myBid.status === "ACTIVE" && status === "OPEN" && myBid.currentOffer.authorRole === "SHIPPER" &&
-        <OfferForm key={myBid.currentRevision} busy={busy} label="Send counter-offer" onOffer={(amount) => counter(myBid, amount)} />}
+        <div key={myBid.currentRevision}>
+          <button type="button" disabled={busy} onClick={() => counter(myBid, myBid.currentOffer.amountCents)}>
+            Agree to {formatRate(myBid.currentOffer.amountCents)}
+          </button>
+          <p>The shipper will confirm the booking.</p>
+          <OfferForm busy={busy} label="Send counter-offer" onOffer={(amount) => counter(myBid, amount)} />
+        </div>}
     </> : status === "OPEN"
       ? <OfferForm busy={busy} label="Place bid" onOffer={(amountCents) => submit(`/loads/${id}/bids`, { amountCents })} />
       : <p>You have no bid on this load.</p>)}

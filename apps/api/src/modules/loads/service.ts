@@ -10,8 +10,12 @@ export type LoadInput = Pick<Load, "description" | "pickupCity" | "pickupRegion"
   "deliveryCity" | "deliveryRegion" | "deliveryLat" | "deliveryLng"> & { pickupReadyAt: string; deliveryBy: string };
 export type LoadQuery = { limit?: number; offset?: number; status?: LoadStatus };
 
-export function toLoadDto({ pickupReadyAt, deliveryBy, createdAt, updatedAt, ...load }: Load) {
-  return { ...load, pickupReadyAt: pickupReadyAt.toISOString(), deliveryBy: deliveryBy.toISOString(),
+export function toLoadDto(load: Load) {
+  const { id, shipperId, status, description, pickupCity, pickupRegion, pickupLat, pickupLng,
+    deliveryCity, deliveryRegion, deliveryLat, deliveryLng, pickupReadyAt, deliveryBy, isSample, createdAt, updatedAt } = load;
+  return { id, shipperId, status, description, pickupCity, pickupRegion, pickupLat, pickupLng,
+    deliveryCity, deliveryRegion, deliveryLat, deliveryLng, isSample,
+    pickupReadyAt: pickupReadyAt.toISOString(), deliveryBy: deliveryBy.toISOString(),
     createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString() };
 }
 
@@ -20,9 +24,14 @@ export async function readLoadForBids(db: Prisma.TransactionClient, id: string) 
   if (!load) throw notFound();
   return load;
 }
+export { readLoadForBids as readLoadRecord };
 
 export function assignLoad(tx: Prisma.TransactionClient, id: string) {
   return tx.load.update({ where: { id }, data: { status: "ASSIGNED" } });
+}
+
+export function completeLoad(tx: Prisma.TransactionClient, id: string) {
+  return tx.load.update({ where: { id, status: "ASSIGNED" }, data: { status: "COMPLETED" } });
 }
 
 function requireShipper(user: AuthenticatedUser) {

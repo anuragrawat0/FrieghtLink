@@ -12,7 +12,7 @@ function localDateTime(hours) {
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16);
 }
 
-test("negotiates live, assigns the winning carrier, and filters My bids", { timeout: 120_000 }, async () => {
+test("negotiates and tracks a load live from posting through POD and invoice", { timeout: 120_000 }, async () => {
   assert.ok(["localhost", "127.0.0.1"].includes(origin.hostname));
   assert.ok(adminEmail && adminPassword, "Seed an admin in the isolated test database.");
   const { chromium } = await import(process.env.PLAYWRIGHT_MODULE ?? "playwright");
@@ -67,6 +67,14 @@ test("negotiates live, assigns the winning carrier, and filters My bids", { time
     await scope.getByRole("button", { name: button }).click();
   }
 
+  async function record(page, button, endpoint = "checkpoints") {
+    const responsePromise = page.waitForResponse((response) =>
+      response.request().method() === "POST" && new URL(response.url()).pathname.endsWith("/" + endpoint));
+    await page.getByRole("button", { name: button, exact: true }).click();
+    const response = await responsePromise;
+    assert.equal(response.status(), 201, await response.text());
+  }
+
   try {
     const [admin, shipper, winner, competitor] = await Promise.all([session(), session(), session(), session()]);
     const winnerName = `Winner ${tag}`;
@@ -113,7 +121,10 @@ test("negotiates live, assigns the winning carrier, and filters My bids", { time
     await winner.getByText("Shipper offered $1,100.00", { exact: true }).waitFor();
     await makeOffer(winner, "Send counter-offer", "1150.50");
     await winningBid.getByText(/Current offer \$1,150.50 · Revision 3/).waitFor();
-    await winningBid.getByRole("button", { name: "Accept bid" }).click();
+    await makeOffer(winningBid, "Send counter-offer", "1150.50");
+    await winner.getByText("The shipper will confirm the booking.", { exact: true }).waitFor();
+    await winner.getByRole("button", { name: "Agree to $1,150.50", exact: true }).click();
+    await winningBid.getByRole("button", { name: "Carrier agreed — Accept", exact: true }).click();
 
     for (const page of [shipper, winner, competitor]) {
       await page.getByText(`${description} (ASSIGNED)`, { exact: true }).waitFor();
@@ -122,6 +133,7 @@ test("negotiates live, assigns the winning carrier, and filters My bids", { time
     const shipmentIds = [];
     for (const page of [shipper, winner]) {
       await page.getByRole("heading", { name: "Assignment" }).waitFor();
+      await page.getByRole("link", { name: "My shipments" }).waitFor();
       await page.getByText(winnerName, { exact: true }).last().waitFor();
       await page.getByText("$1,150.50", { exact: true }).waitFor();
       shipmentIds.push(await page.getByText("Shipment ID", { exact: true }).locator("xpath=following-sibling::dd[1]").textContent());
@@ -140,9 +152,65 @@ test("negotiates live, assigns the winning carrier, and filters My bids", { time
         await carrier.reload();
         await carrier.getByText(shipmentIds[0], { exact: true }).waitFor();
         await carrier.getByRole("heading", { name: "Offer history" }).waitFor();
-        assert.equal(await carrier.locator("ol li").count(), 3);
+        assert.equal(await carrier.locator("ol li").count(), 5);
       }
     }
+
+    await winner.getByRole("link", { name: "View shipment" }).click();
+    await shipper.getByRole("link", { name: "Shipper home" }).click();
+    await shipper.getByRole("link", { name: "My shipments" }).click();
+    await shipper.getByRole("link", { name: `Shipment ${shipmentIds[0]}` }).click();
+
+    const map = shipper.getByRole("region", { name: "Shipment map" });
+    await map.getByRole("link", { name: "OpenStreetMap" }).waitFor();
+    await map.locator('[title="Pickup"]').waitFor();
+    await map.locator('[title="Delivery"]').waitFor();
+    await map.locator(".leaflet-tile-loaded").first().waitFor();
+    const timeline = shipper.getByRole("heading", { name: "Checkpoint timeline" }).locator("..");
+    await timeline.getByText(/^Assigned ·/).waitFor();
+
+    await record(winner, "Arrived at pickup");
+    await timeline.getByText(/^Arrived at pickup ·/).waitFor();
+    await record(winner, "Picked up");
+    await timeline.getByText(/^Picked up ·/).waitFor();
+    await shipper.getByText("In transit", { exact: true }).waitFor();
+    const eta = shipper.getByText("ETA", { exact: true }).locator("xpath=following-sibling::dd[1]");
+    await eta.locator("time").waitFor();
+
+    for (const [index, point] of ["41.1246, -73.2692", "41.5365, -72.5324"].entries()) {
+      await record(winner, "Simulate GPS");
+      await timeline.getByText(point, { exact: false }).waitFor();
+      await winner.getByRole("heading", { name: "Checkpoint timeline" }).locator("..").getByText(point, { exact: false }).waitFor();
+      assert.equal(await timeline.getByText(/^GPS ·/).count(), index + 1);
+    }
+    await map.locator("path.leaflet-interactive").nth(1).waitFor();
+    await record(winner, "Arrived at delivery");
+    await timeline.getByText(/^Arrived at delivery ·/).waitFor();
+    await winner.getByLabel("Proof of delivery photo").setInputFiles({
+      name: "proof.png", mimeType: "image/png",
+      buffer: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jLYAAAAAASUVORK5CYII=", "base64"),
+    });
+    await record(winner, "Upload proof of delivery", "pod");
+
+    for (const page of [shipper, winner]) {
+      await page.getByText("Delivered", { exact: true }).waitFor();
+      await page.getByRole("heading", { name: "Invoice", exact: true }).waitFor();
+      await page.getByText("Total $1,150.50", { exact: true }).waitFor();
+      await page.getByText(/^Pickup detention · \$0.00/).waitFor();
+      await page.getByText(/^Delivery detention · \$0.00/).waitFor();
+    }
+    assert.equal(await eta.textContent(), "—");
+    const downloadPromise = shipper.waitForEvent("download");
+    await shipper.getByRole("button", { name: "Download proof of delivery" }).click();
+    assert.equal((await downloadPromise).suggestedFilename(), "proof-of-delivery.png");
+
+    await winner.getByRole("link", { name: "Carrier home" }).click();
+    await winner.getByRole("link", { name: "My shipments" }).click();
+    await winner.getByRole("link", { name: `Shipment ${shipmentIds[0]}` }).click();
+    await winner.getByText("Total $1,150.50", { exact: true }).waitFor();
+    await winner.getByRole("link", { name: "View load" }).click();
+    await winner.getByText(`${description} (COMPLETED)`, { exact: true }).waitFor();
+    await winner.getByRole("link", { name: "View shipment" }).waitFor();
     assert.deepEqual(errors, []);
   } finally {
     await browser.close();
