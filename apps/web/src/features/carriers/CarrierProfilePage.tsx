@@ -62,7 +62,7 @@ export function CarrierProfilePage() {
   const editable = profile?.verificationStatus === "DRAFT" || profile?.verificationStatus === "REJECTED";
   return <section>
     <h1>Carrier verification</h1>
-    <Link href="/carrier/loads">Browse loads</Link>
+    <Link href="/carrier/loads">Browse loads</Link>{" · "}<Link href="/carrier/bids">My bids</Link>
     {error && <p role="alert">{error}</p>}
     {!profile && !error && <p role="status">Loading profile…</p>}
     {profile && <>

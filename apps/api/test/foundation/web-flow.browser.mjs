@@ -137,14 +137,8 @@ test("StrictMode carrier verification, certificate download and load lifecycle",
     await shipper.getByRole("link", { name: "Your loads" }).click();
     await shipper.getByLabel("Description").fill(loadName);
     const dateTime = (hours) => new Date(Date.now() + hours * 3_600_000).toISOString().slice(0, 16);
-    for (const [stop, city, state, lat, lng] of [
-      ["pickup", "Columbus", "OH", "39.96", "-83.00"],
-      ["delivery", "Indianapolis", "IN", "39.77", "-86.16"],
-    ]) {
-      for (const [field, value] of [["City", city], ["Region", state], ["Lat", lat], ["Lng", lng]]) {
-        await shipper.locator(`[name="${stop}${field}"]`).fill(value);
-      }
-    }
+    await shipper.getByLabel("Pickup city").fill("Columbus, OH");
+    await shipper.getByLabel("Delivery city").fill("Indianapolis, IN");
     await shipper.getByLabel("Ready at (local time)").fill(dateTime(48));
     await shipper.getByLabel("Deliver by (local time)").fill(dateTime(72));
     await shipper.getByRole("button", { name: "Create draft" }).click();

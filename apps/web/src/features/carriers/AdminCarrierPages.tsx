@@ -121,6 +121,12 @@ export function CarrierReviewPage({ id }: { id: string }) {
             <option value="APPROVED">Approve</option><option value="REJECTED">Reject</option>
           </select></label></p>
           <p><label>Review note <textarea name="reviewNote" maxLength={500} required={decision === "REJECTED"} /></label></p>
+          <h3>Review checklist</h3>
+          <ul>
+            <li>Confirm the insurance certificate is valid, the name matches the carrier, and the certificate has not expired.</li>
+            <li>Confirm the MC number format.</li>
+            <li>Confirm the safety rating is not UNSATISFACTORY.</li>
+          </ul>
           <button>{decision === "APPROVED" ? "Approve carrier" : "Reject carrier"}</button>
         </fieldset>
       </form>}

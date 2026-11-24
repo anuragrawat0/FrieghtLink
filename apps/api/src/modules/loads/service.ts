@@ -10,9 +10,19 @@ export type LoadInput = Pick<Load, "description" | "pickupCity" | "pickupRegion"
   "deliveryCity" | "deliveryRegion" | "deliveryLat" | "deliveryLng"> & { pickupReadyAt: string; deliveryBy: string };
 export type LoadQuery = { limit?: number; offset?: number; status?: LoadStatus };
 
-function toLoadDto({ pickupReadyAt, deliveryBy, createdAt, updatedAt, ...load }: Load) {
+export function toLoadDto({ pickupReadyAt, deliveryBy, createdAt, updatedAt, ...load }: Load) {
   return { ...load, pickupReadyAt: pickupReadyAt.toISOString(), deliveryBy: deliveryBy.toISOString(),
     createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString() };
+}
+
+export async function readLoadForBids(db: Prisma.TransactionClient, id: string) {
+  const load = await db.load.findUnique({ where: { id } });
+  if (!load) throw notFound();
+  return load;
+}
+
+export function assignLoad(tx: Prisma.TransactionClient, id: string) {
+  return tx.load.update({ where: { id }, data: { status: "ASSIGNED" } });
 }
 
 function requireShipper(user: AuthenticatedUser) {
@@ -61,8 +71,7 @@ export async function listLoads(db: Prisma.TransactionClient, user: Authenticate
 }
 
 export async function readLoad(db: Prisma.TransactionClient, user: AuthenticatedUser, id: string) {
-  const load = await db.load.findUnique({ where: { id } });
-  if (!load) throw notFound();
+  const load = await readLoadForBids(db, id);
   if (user.role === "ADMIN" || (user.role === "SHIPPER" && load.shipperId === user.id)) return toLoadDto(load);
   if (user.role === "CARRIER") {
     if ((load.status === "OPEN" && await isCarrierApproved(db, user.id)) || await carrierHasBidForLoad(db, load.id, user.id)) {

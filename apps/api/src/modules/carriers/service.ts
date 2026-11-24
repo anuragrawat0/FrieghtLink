@@ -67,9 +67,15 @@ export async function createDraftProfile(tx: Prisma.TransactionClient, userId: s
   await tx.carrierProfile.create({ data: { userId, verificationStatus: "DRAFT" } });
 }
 
+export async function readApprovedCarrierId(db: Prisma.TransactionClient, userId: string) {
+  const profile = await db.carrierProfile.findUnique({
+    where: { userId, verificationStatus: "APPROVED" }, select: { id: true },
+  });
+  return profile?.id;
+}
+
 export async function isCarrierApproved(db: Prisma.TransactionClient, userId: string) {
-  const profile = await db.carrierProfile.findUnique({ where: { userId }, select: { verificationStatus: true } });
-  return profile?.verificationStatus === "APPROVED";
+  return Boolean(await readApprovedCarrierId(db, userId));
 }
 
 export async function readOwnProfile(db: Prisma.TransactionClient, user: AuthenticatedUser) {
