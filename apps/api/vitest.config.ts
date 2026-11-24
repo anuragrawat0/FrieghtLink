@@ -9,6 +9,9 @@ export default defineConfig({
           name: "database",
           include: ["test/**/*.integration.test.ts"],
           globalSetup: "test/setup/database.ts",
+          // Serializable transactions in different suites can conflict on the shared database.
+          fileParallelism: false,
+          testTimeout: 20_000,
         },
       },
     ],

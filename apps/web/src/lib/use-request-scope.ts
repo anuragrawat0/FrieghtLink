@@ -62,5 +62,5 @@ export function useRequestScope() {
     run((signal) => apiFetchBlob(path, { ...options.init, signal }), options);
   }, [run]);
 
-  return { json, blob, cancel };
+  return { json, blob, run, cancel };
 }

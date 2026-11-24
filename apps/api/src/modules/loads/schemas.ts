@@ -1,15 +1,9 @@
 import { LoadStatus } from "../../generated/prisma/enums.js";
 import { errorResponseSchema } from "../../shared/errors.js";
+import { limit, objectSchema, offset, pageMeta, timestamp, uuid } from "../../shared/http-schemas.js";
+export { emptyObject } from "../../shared/http-schemas.js";
 
-function objectSchema<T extends Record<string, unknown>>(properties: T, required = Object.keys(properties)) {
-  return { type: "object", properties, required, additionalProperties: false } as const;
-}
-
-const uuid = { type: "string", format: "uuid", minLength: 36, maxLength: 36 } as const;
-const timestamp = { type: "string", format: "date-time", pattern: "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}\\.\\d{3}Z$" } as const;
 const status = { type: "string", enum: Object.values(LoadStatus) } as const;
-const limit = { type: "integer", minimum: 1, maximum: 100 } as const;
-const offset = { type: "integer", minimum: 0 } as const;
 const city = { type: "string", minLength: 1, maxLength: 100 } as const;
 const region = {
   type: "string",
@@ -25,17 +19,16 @@ export const loadFields = {
   pickupReadyAt: timestamp, deliveryBy: timestamp,
 } as const;
 
-export const emptyObject = objectSchema({});
 export const loadParams = objectSchema({ loadId: uuid });
 export const loadQuery = objectSchema({ limit, offset, status }, []);
 export const loadInput = objectSchema(loadFields);
 export const loadPatch = { ...objectSchema(loadFields, []), minProperties: 1 };
 
-const load = objectSchema({
+export const load = objectSchema({
   id: uuid, shipperId: uuid, status, ...loadFields, isSample: { type: "boolean" }, createdAt: timestamp, updatedAt: timestamp,
 });
 export const loadResponse = objectSchema({ data: load });
 export const listResponse = objectSchema({
-  data: { type: "array", items: load }, meta: objectSchema({ limit, offset, hasMore: { type: "boolean" } }),
+  data: { type: "array", items: load }, meta: pageMeta,
 });
 export const errorResponses = { "4xx": errorResponseSchema, "5xx": errorResponseSchema };

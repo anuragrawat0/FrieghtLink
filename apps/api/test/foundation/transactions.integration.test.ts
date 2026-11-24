@@ -55,7 +55,7 @@ async function expectExhausted(scenario: string) {
   const response = await app.inject({ method: "POST", url: `/api/v1/transaction-fixture/${scenario}` });
   expect(response.statusCode, response.body).toBe(503);
   expect(response.json().error).toMatchObject({ code: "CONCURRENT_UPDATE", requestId: expect.any(String) });
-  expect(attempts.get(scenario)).toBe(3);
+  expect(attempts.get(scenario)).toBe(5);
 }
 
 it.each(["serialization", "deadlock", "commit"])("retries PostgreSQL %s failures before returning 503", expectExhausted);
