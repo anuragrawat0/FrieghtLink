@@ -207,7 +207,7 @@ it("enforces participant scopes, current approval, and strict request validation
 });
 
 type Response = Awaited<ReturnType<typeof request>>;
-async function raceAfterOpenRead(start: () => Promise<Response>, compete: () => Promise<Response>) {
+async function raceAfterOpenRead(start: () => Promise<Response>, compete: () => Promise<Response>): Promise<[Response, Response]> {
   const opened = Promise.withResolvers<void>();
   const release = Promise.withResolvers<void>();
   const original = loads.readLoadForBids;
@@ -236,14 +236,20 @@ async function raceAfterOpenRead(start: () => Promise<Response>, compete: () => 
   }
 }
 
-async function expectRaceResult([lost, won]: Response[], loadId: string, status: "CANCELLED" | "OPEN" | "ASSIGNED") {
+async function expectRaceResult(
+  [lost, won]: [Response, Response],
+  loadId: string,
+  status: "CANCELLED" | "OPEN" | "ASSIGNED",
+  expectedCode: "LOAD_NOT_OPEN" | "STALE_OFFER",
+) {
   expect(won.statusCode, won.body).toBe(200);
-  expect([409, 503], lost.body).toContain(lost.statusCode);
+  expect(lost.statusCode, lost.body).toBe(409);
+  expect(lost.json().error.code).toBe(expectedCode);
   const load = await app.prisma.load.findUniqueOrThrow({ where: { id: loadId }, include: { bids: true, shipment: true } });
   expect(load.status).toBe(status);
   const active = load.bids.filter((bid) => bid.status === "ACTIVE");
   const accepted = load.bids.filter((bid) => bid.status === "ACCEPTED");
-  if (status === "CANCELLED") expect(active).toHaveLength(0);
+  if (status !== "OPEN") expect(active).toHaveLength(0);
   expect(accepted).toHaveLength(status === "ASSIGNED" ? 1 : 0);
   expect(load.shipment?.acceptedBidId).toBe(accepted[0]?.id);
   return load;
@@ -256,7 +262,7 @@ it("cancels a load while a bid create is in flight", async () => {
   const result = await raceAfterOpenRead(
     () => place(carrier, loadId), () => request(shipper, `/loads/${loadId}/cancel`, "POST"),
   );
-  expect((await expectRaceResult(result, loadId, "CANCELLED")).bids).toEqual([]);
+  expect((await expectRaceResult(result, loadId, "CANCELLED", "LOAD_NOT_OPEN")).bids).toEqual([]);
 });
 
 it("cancels a load while an acceptance is in flight", async () => {
@@ -267,7 +273,8 @@ it("cancels a load while an acceptance is in flight", async () => {
   const result = await raceAfterOpenRead(
     () => accept(shipper, bidId), () => request(shipper, `/loads/${loadId}/cancel`, "POST"),
   );
-  expect((await expectRaceResult(result, loadId, "CANCELLED")).bids).toMatchObject([{ id: bidId, status: "CLOSED" }]);
+  const load = await expectRaceResult(result, loadId, "CANCELLED", "LOAD_NOT_OPEN");
+  expect(load.bids).toMatchObject([{ id: bidId, status: "CLOSED" }]);
 });
 
 it("gives a load to only one of two concurrent acceptances", async () => {
@@ -278,7 +285,7 @@ it("gives a load to only one of two concurrent acceptances", async () => {
   const firstBid = await bidFor(firstCarrier, loadId);
   const secondBid = await bidFor(secondCarrier, loadId);
   const result = await raceAfterOpenRead(() => accept(shipper, firstBid), () => accept(shipper, secondBid));
-  const load = await expectRaceResult(result, loadId, "ASSIGNED");
+  const load = await expectRaceResult(result, loadId, "ASSIGNED", "LOAD_NOT_OPEN");
   expect(load.bids).toEqual(expect.arrayContaining([
     expect.objectContaining({ id: firstBid, status: "CLOSED" }),
     expect.objectContaining({ id: secondBid, status: "ACCEPTED" }),
@@ -291,6 +298,53 @@ it("rejects acceptance of a revision superseded by a concurrent counter", async 
   const loadId = await openLoad(shipper);
   const bidId = await bidFor(carrier, loadId);
   const result = await raceAfterOpenRead(() => accept(shipper, bidId), () => counter(shipper, bidId, 1));
-  expect((await expectRaceResult(result, loadId, "OPEN")).bids).toMatchObject([{ id: bidId, status: "ACTIVE", currentRevision: 2 }]);
-  if (result[0].statusCode === 409) expect(result[0].json().error.code).toBe("STALE_OFFER");
+  const load = await expectRaceResult(result, loadId, "OPEN", "STALE_OFFER");
+  expect(load.bids).toMatchObject([{ id: bidId, status: "ACTIVE", currentRevision: 2 }]);
+});
+
+it("rejects a new bid when acceptance assigns the load during creation", async () => {
+  const shipper = await account("SHIPPER", "Owner");
+  const carrier = await account("CARRIER", "Winning carrier");
+  const newcomer = await account("CARRIER", "New carrier");
+  const loadId = await openLoad(shipper);
+  const bidId = await bidFor(carrier, loadId);
+  const result = await raceAfterOpenRead(() => place(newcomer, loadId), () => accept(shipper, bidId));
+  const load = await expectRaceResult(result, loadId, "ASSIGNED", "LOAD_NOT_OPEN");
+  expect(load.bids).toMatchObject([{ id: bidId, status: "ACCEPTED" }]);
+});
+
+it("rejects a counter when cancellation closes the bid", async () => {
+  const shipper = await account("SHIPPER", "Owner");
+  const carrier = await account("CARRIER", "Carrier");
+  const loadId = await openLoad(shipper);
+  const bidId = await bidFor(carrier, loadId);
+  const result = await raceAfterOpenRead(
+    () => counter(shipper, bidId, 1), () => request(shipper, `/loads/${loadId}/cancel`, "POST"),
+  );
+  const load = await expectRaceResult(result, loadId, "CANCELLED", "LOAD_NOT_OPEN");
+  expect(load.bids).toMatchObject([{ id: bidId, status: "CLOSED", currentRevision: 1 }]);
+});
+
+it("assigns eight different loads through parallel acceptance requests", async () => {
+  const fixtures: { shipper: Account; loadId: string; bidId: string }[] = [];
+  for (let index = 0; index < 8; index++) {
+    const shipper = await account("SHIPPER", `Burst shipper ${index + 1}`);
+    const carrier = await account("CARRIER", `Burst carrier ${index + 1}`);
+    const loadId = await openLoad(shipper);
+    fixtures.push({ shipper, loadId, bidId: await bidFor(carrier, loadId) });
+  }
+
+  const results = await Promise.all(fixtures.map(({ shipper, bidId }) => accept(shipper, bidId)));
+  for (const [index, response] of results.entries()) {
+    const { loadId, bidId } = fixtures[index];
+    expect(response.statusCode, response.body).toBe(200);
+    expect(response.json().data).toMatchObject({
+      load: { id: loadId, status: "ASSIGNED" },
+      bid: { id: bidId, status: "ACCEPTED" },
+      shipment: { loadId, acceptedBidId: bidId, status: "ASSIGNED" },
+    });
+  }
+  expect(await app.prisma.bid.count({
+    where: { loadId: { in: fixtures.map(({ loadId }) => loadId) }, status: "ACTIVE" },
+  })).toBe(0);
 });

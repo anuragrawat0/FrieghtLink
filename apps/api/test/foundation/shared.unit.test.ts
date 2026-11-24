@@ -58,11 +58,11 @@ describe("Serializable retries", () => {
     expect(transaction.mock.calls.every((call) => call[1]?.isolationLevel === "Serializable")).toBe(true);
   });
 
-  it("stops after two retries and gives ordinary application errors one attempt", async () => {
+  it("stops after four retries and gives ordinary application errors one attempt", async () => {
     const transaction = vi.fn().mockRejectedValue(conflict);
     const prisma = { $transaction: transaction } as unknown as PrismaClient;
     await expect(withSerializableTransaction(prisma, async () => null)).rejects.toBe(conflict);
-    expect(transaction).toHaveBeenCalledTimes(3);
+    expect(transaction).toHaveBeenCalledTimes(5);
     const unrelated = Object.assign(new Error("A caller error"), { code: "P2034" });
     transaction.mockReset().mockRejectedValue(unrelated);
     await expect(withSerializableTransaction(prisma, async () => null)).rejects.toBe(unrelated);

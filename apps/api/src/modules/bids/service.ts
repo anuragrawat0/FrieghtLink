@@ -181,6 +181,8 @@ export async function counterBid(app: FastifyInstance, user: AuthenticatedUser, 
 export async function acceptBid(app: FastifyInstance, user: AuthenticatedUser, id: string, expectedRevision: number) {
   if (user.role !== "SHIPPER") throw forbidden();
   const result = await withSerializableTransaction(app.prisma, async (tx) => {
+    // Prefer the bid and load indexes to avoid relation-wide predicate locks on small tables.
+    await tx.$executeRaw`SET LOCAL enable_seqscan = off`;
     const bid = await findBid(tx, id);
     const load = await readLoadForBids(tx, bid.loadId);
     requireParticipant(user, load, bid);
